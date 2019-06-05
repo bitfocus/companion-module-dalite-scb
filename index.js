@@ -14,12 +14,6 @@ class instance extends require('../../instance_skel') {
 	}
 
 	actions(system) {
-		const value_input = {
-			type:  'textinput',
-			label: 'Value',
-			id:    'value',
-			regex: this.REGEX_NUMBER
-		};
 		const choices = function (object) {
 			return Object.entries(object).map(array => {
 				return {id: array[1], label: array[0].toProperCase()};
@@ -58,7 +52,12 @@ class instance extends require('../../instance_skel') {
 						id:      'unit',
 						default: this.POSITION_UNITS.INCHES,
 						choices: choices(this.POSITION_UNITS),
-					}, value_input);
+					}, {
+						type:  'textinput',
+						label: 'Value',
+						id:    'value',
+						regex: this.REGEX_NUMBER
+					});
 					break;
 				case this.COMMANDS.ASPECT_RATIO:
 					options.push({
@@ -70,8 +69,7 @@ class instance extends require('../../instance_skel') {
 					});
 					break;
 				default:
-					options.push(value_input);
-					break;
+					debug(`No button actions for command: ${key}`);
 			}
 			if (options.length > 0) {
 				actions[command.value] = {label: key.toProperCase('_'), options: options};
@@ -99,8 +97,9 @@ class instance extends require('../../instance_skel') {
 				const index = (parseInt(options.index) + 1) % 10;
 				this.set(this.COMMANDS.TARGET_POSITION, `${command.value + index}`);
 				break;
+			case undefined:
 			default:
-				this.log('error', `Unknown command action: ${object.action}`);
+				this.log('error', `No button action handler for command: ${object.action}`);
 				break;
 		}
 	}
