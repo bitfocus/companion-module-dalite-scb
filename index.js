@@ -91,7 +91,7 @@ class instance extends require('../../instance_skel') {
 				}
 				break;
 			case this.COMMANDS.ASPECT_RATIO:
-				const index = (parseInt(options.index) + 1) % 10;
+				const index = (+options.index + 1) % 10;
 				this.set(this.COMMANDS.TARGET_POSITION, `${command.value + index}`);
 				break;
 			default:
@@ -224,6 +224,15 @@ class instance extends require('../../instance_skel') {
 						choices: this.choices(this.RELAY_STATUS)
 					});
 					break;
+				case this.COMMANDS.ASPECT_RATIO:
+					options.push({
+						type:    'dropdown',
+						label:   'Aspect Ratio',
+						id:      'index',
+						default: this.ASPECT_RATIO["Custom 1"],
+						choices: this.choices(this.ASPECT_RATIO),
+					});
+					break;
 				case this.COMMANDS.SCREEN_POSITION:
 					options.push({
 						type:    'dropdown',
@@ -244,31 +253,41 @@ class instance extends require('../../instance_skel') {
 		this.setFeedbackDefinitions(feedbacks);
 	}
 
-	feedback(feedback) {
+	feedback(feedback, bank) {
 		const command = this.COMMANDS.find(feedback.type),
 					opt     = feedback.options,
 					data    = this.data[command.value];
+		let local = {},
+				out   = {color: opt.fg, bgcolor: opt.bg};
 		switch (command) {
 			case this.COMMANDS.RELAY_STATUS:
 				if (data !== opt.status) return;
 				break;
+			case this.COMMANDS.ASPECT_RATIO:
+				local.value = +data[(+opt.index + 1) % 10];
+				if (!local.value && local.value !== 0) return;
+				local.floor = +this.data[this.COMMANDS.TARGET_POSITION.value] - 15;
+				local.ceil = +this.data[this.COMMANDS.TARGET_POSITION.value] + 15;
+				if (!(local.value >= local.floor && local.value <= local.ceil)) return;
+				break;
 			case this.COMMANDS.SCREEN_POSITION:
-				if (!opt.value) break;
-				const value = opt.value * opt.unit,
-							floor = +data - 100,
-							ceil  = +data + 100;
-				if (!(value >= floor && value <= ceil)) return;
+				if (!opt.value && opt.value !== 0) return;
+				local.value = opt.value * opt.unit;
+				local.floor = +data - 50;
+				local.ceil = +data + 50;
+				if (!(local.value >= local.floor && local.value <= local.ceil)) return;
 				break;
 			default:
+				debug(`No feedback programmed for command: ${command.value}`);
 				return;
 		}
-		return {color: opt.fg, bgcolor: opt.bg};
+		return out;
 	};
 
 	refreshData() {
 		const data = this.COMMANDS.filter(this.ACCESS.READONLY, this.ACCESS.READWRITE)
 			.filter(c => c[1] !== this.COMMANDS.ASPECT_RATIO).map(c => c[1].value)
-			// .concat(Object.values(this.ASPECT_RATIO).map(a => `A${a + 1 % 10}`))
+			.concat(Object.values(this.ASPECT_RATIO).map(a => `${this.COMMANDS.ASPECT_RATIO.value}${a}`))
 			.map(value => `$ 0 GE ${value}\r`);
 		this.socket.send(data.join(''));
 	}
@@ -298,9 +317,9 @@ class instance extends require('../../instance_skel') {
 
 	constants() {
 		this.POSITION_UNITS = {
-			INCHES:      25.4,
-			CENTIMETERS: 10.0,
 			MILLIMETERS: 1.0,
+			CENTIMETERS: 10.0,
+			INCHES:      25.4,
 		};
 		this.POSITION_TYPE = {
 			SET:   'FIX',
@@ -331,33 +350,33 @@ class instance extends require('../../instance_skel') {
 		};
 		this.COMMANDS = {
 			// ALL:                 {value: 'AL', access: this.ACCESS.READONLY}, // Returns nothing
-			ENABLED:             {value: 'EN', access: this.ACCESS.READONLY},
-			LOCATION:            {value: 'LO', access: this.ACCESS.READONLY},
-			VERSION:             {value: 'SV', access: this.ACCESS.READONLY},
-			TARGET_DENSITY:      {value: 'TD', access: this.ACCESS.READONLY},
-			ROLLER_DIAMETER:     {value: 'RD', access: this.ACCESS.READONLY},
-			SLACK_WRAP:          {value: 'SL', access: this.ACCESS.READONLY},
-			SCREEN_THICKNESS:    {value: 'ST', access: this.ACCESS.READONLY},
-			SCREEN_WIDTH:        {value: 'SW', access: this.ACCESS.READONLY},
-			SCREEN_HEIGHT:       {value: 'SH', access: this.ACCESS.READONLY},
-			MAC_ADDRESS:         {value: 'MA', access: this.ACCESS.READONLY},
-			SENSOR_STATUS:       {value: 'SE', access: this.ACCESS.READONLY},
-			MASTER_SLAVE_STATUS: {value: 'MS', access: this.ACCESS.READONLY},
-			RELAY_STATUS:        {value: 'RE', access: this.ACCESS.READWRITE},
-			UPPER_LIMIT:         {value: 'UL', access: this.ACCESS.READONLY},
-			LOWER_LIMIT:         {value: 'LM', access: this.ACCESS.READONLY},
-			SCREEN_POSITION:     {value: 'MM', access: this.ACCESS.READWRITE},
-			TARGET_POSITION:     {value: 'TA', access: this.ACCESS.READWRITE},
-			ASPECT_RATIO:        {value: 'A', access: this.ACCESS.WRITEONLY}, // Read is broken
-			AC:                  {value: 'AC', access: this.ACCESS.READONLY},
-			IP_ADDRESS:          {value: 'IP', access: this.ACCESS.READONLY},
-			SUBNET_MASK:         {value: 'SN', access: this.ACCESS.READONLY},
-			DHCP:                {value: 'DH', access: this.ACCESS.READONLY},
+			ENABLED:          {value: 'EN', access: this.ACCESS.READONLY},
+			LOCATION:         {value: 'LO', access: this.ACCESS.READONLY},
+			VERSION:          {value: 'SV', access: this.ACCESS.READONLY},
+			TARGET_DENSITY:   {value: 'TD', access: this.ACCESS.READONLY},
+			ROLLER_DIAMETER:  {value: 'RD', access: this.ACCESS.READONLY},
+			SLACK_WRAP:       {value: 'SL', access: this.ACCESS.READONLY},
+			SCREEN_THICKNESS: {value: 'ST', access: this.ACCESS.READONLY},
+			SCREEN_WIDTH:     {value: 'SW', access: this.ACCESS.READONLY},
+			SCREEN_HEIGHT:    {value: 'SH', access: this.ACCESS.READONLY},
+			MAC_ADDRESS:      {value: 'MA', access: this.ACCESS.READONLY},
+			SENSOR_STATUS:    {value: 'SE', access: this.ACCESS.READONLY},
+			// MASTER_SLAVE_STATUS: {value: 'MS', access: this.ACCESS.READONLY},
+			RELAY_STATUS:     {value: 'RE', access: this.ACCESS.READWRITE},
+			UPPER_LIMIT:      {value: 'UL', access: this.ACCESS.READONLY},
+			LOWER_LIMIT:      {value: 'LM', access: this.ACCESS.READONLY},
+			SCREEN_POSITION:  {value: 'MM', access: this.ACCESS.READWRITE},
+			TARGET_POSITION:  {value: 'TA', access: this.ACCESS.READWRITE},
+			ASPECT_RATIO:     {value: 'A', access: this.ACCESS.READWRITE},
+			AC:               {value: 'AC', access: this.ACCESS.READONLY},
+			IP_ADDRESS:       {value: 'IP', access: this.ACCESS.READONLY},
+			SUBNET_MASK:      {value: 'SN', access: this.ACCESS.READONLY},
+			DHCP:             {value: 'DH', access: this.ACCESS.READONLY},
 			// SERIAL_FLASH:        {value: 'SF', access: this.ACCESS.READONLY},
 			// RESET:               {value: 'RS', access: this.ACCESS.WRITEONLY},
-			find:                (command) => {
+			find:             (command) => {
 				if (typeof command === 'string') {
-					if (command.match(new RegExp(`^[A][${Object.values(this.ASPECT_RATIO).join('')}]$`))) {
+					if (command.match(new RegExp(`^[${this.COMMANDS.ASPECT_RATIO.value}][${Object.values(this.ASPECT_RATIO).join('')}]$`))) {
 						command = this.COMMANDS.ASPECT_RATIO.value;
 					}
 					command = Object.values(this.COMMANDS).find(prop => prop.value === command);
@@ -367,7 +386,7 @@ class instance extends require('../../instance_skel') {
 				}
 				return command;
 			},
-			filter:              (...access) => {
+			filter:           (...access) => {
 				access = access.map(access => {
 					if (typeof access === 'string') {
 						access = Object.values(this.ACCESS).find(a => a.value === access);
