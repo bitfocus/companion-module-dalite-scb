@@ -11,17 +11,13 @@ class instance extends require('../../instance_skel') {
 		super(system, id, config);
 		this.constants();
 		this.actions();
+		this.data = {};
 	}
 
 	actions(system) {
-		const choices = function (object) {
-			return Object.entries(object).map(array => {
-				return {id: array[1], label: array[0].toProperCase()};
-			});
-		};
 		let actions = {};
-		const commands = Object.entries(this.COMMANDS).filter(c => c[1].access === this.ACCESS.READWRITE);
-		for (let [key, command] of commands) {
+		const commands = this.COMMANDS.filter(this.ACCESS.READWRITE, this.ACCESS.WRITEONLY);
+		for (const [key, command] of commands) {
 			let options = [];
 			switch (command) {
 				case this.COMMANDS.LOCATION:
@@ -36,7 +32,7 @@ class instance extends require('../../instance_skel') {
 						label:   'Action',
 						id:      'action',
 						default: this.RELAY_STATUS.STOP,
-						choices: choices(this.RELAY_STATUS),
+						choices: this.choices(this.RELAY_STATUS),
 					});
 					break;
 				case this.COMMANDS.SCREEN_POSITION:
@@ -45,13 +41,13 @@ class instance extends require('../../instance_skel') {
 						label:   'Type',
 						id:      'type',
 						default: this.POSITION_TYPE.SET,
-						choices: choices(this.POSITION_TYPE),
+						choices: this.choices(this.POSITION_TYPE),
 					}, {
 						type:    'dropdown',
 						label:   'Unit',
 						id:      'unit',
 						default: this.POSITION_UNITS.INCHES,
-						choices: choices(this.POSITION_UNITS),
+						choices: this.choices(this.POSITION_UNITS),
 					}, {
 						type:  'textinput',
 						label: 'Value',
@@ -65,7 +61,7 @@ class instance extends require('../../instance_skel') {
 						label:   'Aspect Ratio',
 						id:      'index',
 						default: this.ASPECT_RATIO["Custom 1"],
-						choices: choices(this.ASPECT_RATIO),
+						choices: this.choices(this.ASPECT_RATIO),
 					});
 					break;
 				default:
@@ -81,7 +77,7 @@ class instance extends require('../../instance_skel') {
 	}
 
 	action(object) {
-		const command = this.COMMANDS.get(object.action);
+		const command = this.COMMANDS.find(object.action);
 		const options = object.options;
 		switch (command) {
 			case this.COMMANDS.RELAY_STATUS:
@@ -90,14 +86,14 @@ class instance extends require('../../instance_skel') {
 			case this.COMMANDS.TARGET_POSITION:
 			case this.COMMANDS.SCREEN_POSITION:
 				if (options.value !== null) {
-					this.set(command, `${options.type} ${Math.round(options.unit * options.value)}`);
+					const value = Math.round(options.unit * options.value);
+					this.set(command, `${options.type} ${value}`);
 				}
 				break;
 			case this.COMMANDS.ASPECT_RATIO:
 				const index = (parseInt(options.index) + 1) % 10;
 				this.set(this.COMMANDS.TARGET_POSITION, `${command.value + index}`);
 				break;
-			case undefined:
 			default:
 				this.log('error', `No button action handler for command: ${object.action}`);
 				break;
@@ -127,6 +123,7 @@ class instance extends require('../../instance_skel') {
 			this.socket.destroy();
 			delete this.socket;
 		}
+		if (this.refreshInterval) clearInterval(this.refreshInterval);
 		debug("destroy");
 	}
 
@@ -135,6 +132,7 @@ class instance extends require('../../instance_skel') {
 		debug = this.debug;
 		log = this.log;
 		this.init_tcp();
+		this.initFeedbacks();
 	}
 
 	init_tcp() {
@@ -152,13 +150,127 @@ class instance extends require('../../instance_skel') {
 				debug("Network error", err);
 				this.status(this.STATE_ERROR, err);
 				this.log('error', `Network error: ${err.message}`);
+				if (this.refreshInterval) clearInterval(this.refreshInterval);
 			});
 
 			this.socket.on('connect', () => {
 				this.status(this.STATE_OK);
 				debug("Connected");
+				this.refreshInterval = setInterval(this.refreshData.bind(this), 1000);
+			});
+
+			// separate buffered stream into lines with responses
+			let receivebuffer = '';
+			this.socket.on('data', (chunk) => {
+				let i, line = '', offset = 0;
+				receivebuffer += chunk;
+				while ((i = receivebuffer.indexOf('\r', offset)) !== -1) {
+					line = receivebuffer.substr(offset, i - offset);
+					offset = i + 1;
+					this.socket.emit('receiveline', line.toString());
+				}
+				Object.keys(this.data).forEach(this.checkFeedbacks.bind(this));
+				receivebuffer = receivebuffer.substr(offset);
+			});
+			this.socket.on('receiveline', (line) => {
+				const parts   = line.split(' '),
+							type    = parts[2],
+							command = this.COMMANDS.find(parts[3]);
+				let result = parts.slice(4).join(' ');
+				switch (command) {
+					case this.COMMANDS.ASPECT_RATIO:
+						if (!this.data[command.value]) this.data[command.value] = {};
+						this.data[command.value][parts[3][1]] = result;
+						break;
+					default:
+						this.data[command.value] = result;
+						break;
+					case undefined:
+						debug('Unknown SCB command response');
+						return;
+				}
 			});
 		}
+	}
+
+	initFeedbacks() {
+		let feedbacks = {};
+		const commands = this.COMMANDS.filter(this.ACCESS.READWRITE);
+		for (const [key, command] of commands) {
+			let options = [{
+				type:    'colorpicker',
+				label:   'Foreground color',
+				id:      'fg',
+				default: this.rgb(255, 255, 255)
+			}, {
+				type:    'colorpicker',
+				label:   'Background color',
+				id:      'bg',
+				default: this.rgb(0, 255, 0)
+			}];
+			switch (command) {
+				case this.COMMANDS.IP_ADDRESS:
+				case this.COMMANDS.SUBNET_MASK:
+				case this.COMMANDS.TARGET_POSITION:
+				case this.COMMANDS.LOCATION:
+					// Internal settings we don't want to have options for.
+					continue;
+				case this.COMMANDS.RELAY_STATUS:
+					options.push({
+						type:    'dropdown',
+						label:   'Status',
+						id:      'status',
+						default: this.RELAY_STATUS.STOP,
+						choices: this.choices(this.RELAY_STATUS)
+					});
+					break;
+				case this.COMMANDS.SCREEN_POSITION:
+					options.push({
+						type:    'dropdown',
+						label:   'Unit',
+						id:      'unit',
+						default: this.POSITION_UNITS.INCHES,
+						choices: this.choices(this.POSITION_UNITS),
+					}, {
+						type:  'textinput',
+						label: 'Position',
+						id:    'value',
+						regex: this.REGEX_NUMBER
+					});
+					break;
+			}
+			feedbacks[command.value] = {label: key.toProperCase('_'), options: options};
+		}
+		this.setFeedbackDefinitions(feedbacks);
+	}
+
+	feedback(feedback) {
+		const command = this.COMMANDS.find(feedback.type),
+					opt     = feedback.options,
+					data    = this.data[command.value];
+		switch (command) {
+			case this.COMMANDS.RELAY_STATUS:
+				if (data !== opt.status) return;
+				break;
+			case this.COMMANDS.SCREEN_POSITION:
+				if (!opt.value) break;
+				const value = opt.value * opt.unit,
+							floor = +data - 100,
+							ceil  = +data + 100;
+				if (!(value >= floor && value <= ceil)) return;
+				break;
+			default:
+				return;
+		}
+		return {color: opt.fg, bgcolor: opt.bg};
+	};
+
+	refreshData() {
+		const data = this.COMMANDS.filter(this.ACCESS.READONLY, this.ACCESS.READWRITE)
+			.filter(c => c[1] !== this.COMMANDS.ASPECT_RATIO).map(c => c[1].value)
+			// .concat(Object.values(this.ASPECT_RATIO).map(a => `A${a + 1 % 10}`))
+			.map(value => `$ 0 GE ${value}\r`);
+		this.socket.send(data.join(''));
 	}
 
 	updateConfig(config) {
@@ -171,14 +283,14 @@ class instance extends require('../../instance_skel') {
 	};
 
 	get(command) {
-		command = this.COMMANDS.get(command);
+		command = this.COMMANDS.find(command);
 		if ([this.ACCESS.READONLY, this.ACCESS.READWRITE].indexOf(command.access) !== -1) {
 			this.socket.send(`$ 0 GE ${command.value}\r`);
 		}
 	};
 
 	set(command, value) {
-		command = this.COMMANDS.get(command);
+		command = this.COMMANDS.find(command);
 		if ([this.ACCESS.WRITEONLY, this.ACCESS.READWRITE].indexOf(command.access) !== -1) {
 			this.socket.send(`# 0 SE ${command.value} ${value}\r`);
 		}
@@ -191,8 +303,8 @@ class instance extends require('../../instance_skel') {
 			MILLIMETERS: 1.0,
 		};
 		this.POSITION_TYPE = {
-			RAISE: 'DEC',
 			SET:   'FIX',
+			RAISE: 'DEC',
 			LOWER: 'INC'
 		};
 		this.RELAY_STATUS = {
@@ -218,9 +330,9 @@ class instance extends require('../../instance_skel') {
 			READWRITE: {value: 'RW'},
 		};
 		this.COMMANDS = {
-			ALL:                 {value: 'AL', access: this.ACCESS.READONLY}, // Possibly broken
+			// ALL:                 {value: 'AL', access: this.ACCESS.READONLY}, // Returns nothing
 			ENABLED:             {value: 'EN', access: this.ACCESS.READONLY},
-			LOCATION:            {value: 'LO', access: this.ACCESS.READWRITE},
+			LOCATION:            {value: 'LO', access: this.ACCESS.READONLY},
 			VERSION:             {value: 'SV', access: this.ACCESS.READONLY},
 			TARGET_DENSITY:      {value: 'TD', access: this.ACCESS.READONLY},
 			ROLLER_DIAMETER:     {value: 'RD', access: this.ACCESS.READONLY},
@@ -236,23 +348,41 @@ class instance extends require('../../instance_skel') {
 			LOWER_LIMIT:         {value: 'LM', access: this.ACCESS.READONLY},
 			SCREEN_POSITION:     {value: 'MM', access: this.ACCESS.READWRITE},
 			TARGET_POSITION:     {value: 'TA', access: this.ACCESS.READWRITE},
-			ASPECT_RATIO:        {value: 'A', access: this.ACCESS.READWRITE},
+			ASPECT_RATIO:        {value: 'A', access: this.ACCESS.WRITEONLY}, // Read is broken
 			AC:                  {value: 'AC', access: this.ACCESS.READONLY},
-			IP_ADDRESS:          {value: 'IP', access: this.ACCESS.READWRITE},
-			SUBNET_MASK:         {value: 'SN', access: this.ACCESS.READWRITE},
+			IP_ADDRESS:          {value: 'IP', access: this.ACCESS.READONLY},
+			SUBNET_MASK:         {value: 'SN', access: this.ACCESS.READONLY},
 			DHCP:                {value: 'DH', access: this.ACCESS.READONLY},
-			SERIAL_FLASH:        {value: 'SF', access: this.ACCESS.READONLY},
-			RESET:               {value: 'RS', access: this.ACCESS.WRITEONLY},
-			get:                 command => {
+			// SERIAL_FLASH:        {value: 'SF', access: this.ACCESS.READONLY},
+			// RESET:               {value: 'RS', access: this.ACCESS.WRITEONLY},
+			find:                (command) => {
 				if (typeof command === 'string') {
+					if (command.match(new RegExp(`^[A][${Object.values(this.ASPECT_RATIO).join('')}]$`))) {
+						command = this.COMMANDS.ASPECT_RATIO.value;
+					}
 					command = Object.values(this.COMMANDS).find(prop => prop.value === command);
 				}
 				if (typeof command !== 'object') {
 					debug('Unknown SCB command');
 				}
 				return command;
+			},
+			filter:              (...access) => {
+				access = access.map(access => {
+					if (typeof access === 'string') {
+						access = Object.values(this.ACCESS).find(a => a.value === access);
+					}
+					if (typeof access !== 'object') {
+						debug('Unknown access permission');
+					}
+					return access;
+				});
+				return Object.entries(this.COMMANDS).filter(c => access.indexOf(c[1].access) !== -1);
 			}
 		};
+		this.choices = object => Object.entries(object).map(array => {
+			return {id: array[1], label: array[0].toProperCase()};
+		});
 	}
 }
 
