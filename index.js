@@ -132,6 +132,7 @@ class instance extends require('../../instance_skel') {
 		debug = this.debug;
 		log = this.log;
 		this.init_tcp();
+		this.initVariables();
 		this.initFeedbacks();
 	}
 
@@ -169,7 +170,33 @@ class instance extends require('../../instance_skel') {
 					offset = i + 1;
 					this.socket.emit('receiveline', line.toString());
 				}
-				Object.keys(this.data).forEach(this.checkFeedbacks.bind(this));
+				Object.entries(this.data).forEach(data => {
+					const command = this.COMMANDS.find(data[0]);
+					switch (command) {
+						case this.COMMANDS.SCREEN_HEIGHT:
+						case this.COMMANDS.SCREEN_WIDTH:
+						case this.COMMANDS.UPPER_LIMIT:
+						case this.COMMANDS.LOWER_LIMIT:
+						case this.COMMANDS.SCREEN_POSITION:
+							Object.entries(this.POSITION_UNITS).forEach(u => {
+								if (u[1] === 1) {
+									this.setVariable(data[0], data[1]);
+								} else {
+									this.setVariable(data[0] + ':' + u[0], (data[1] / u[1]).toFixed(2));
+								}
+							});
+							break;
+						case this.COMMANDS.ASPECT_RATIO:
+							Object.keys(data[1]).forEach(key => {
+								this.setVariable(data[0] + key, data[1][(+key + 1) % 10]);
+							});
+							break;
+						default:
+							this.setVariable(data[0], data[1]);
+							break;
+					}
+					this.checkFeedbacks(data[0]);
+				});
 				receivebuffer = receivebuffer.substr(offset);
 			});
 			this.socket.on('receiveline', (line) => {
@@ -191,6 +218,37 @@ class instance extends require('../../instance_skel') {
 				}
 			});
 		}
+	}
+
+	initVariables() {
+		let variables = [];
+		const commands = this.COMMANDS.filter(this.ACCESS.READONLY, this.ACCESS.READWRITE);
+		commands.forEach(c => {
+			switch (c[1]) {
+				case this.COMMANDS.SCREEN_HEIGHT:
+				case this.COMMANDS.SCREEN_WIDTH:
+				case this.COMMANDS.UPPER_LIMIT:
+				case this.COMMANDS.LOWER_LIMIT:
+				case this.COMMANDS.SCREEN_POSITION:
+					Object.entries(this.POSITION_UNITS).forEach(u => {
+						if (u[1] === 1) {
+							variables.push({label: `${c[0].toProperCase('_')} (${u[0].toProperCase()})`, name: c[1].value});
+						} else {
+							variables.push({label: `${c[0].toProperCase('_')} (${u[0].toProperCase()})`, name: `${c[1].value}:${u[0]}`});
+						}
+					});
+					break;
+				case this.COMMANDS.ASPECT_RATIO:
+					Object.entries(this.ASPECT_RATIO).forEach(a => {
+						variables.push({label: `Aspect Ratio (${a[0]})`, name: c[1].value + a[1]});
+					});
+					break;
+				default:
+					variables.push({label: c[0].toProperCase('_'), name: c[1].value});
+					break;
+			}
+		});
+		this.setVariableDefinitions(variables);
 	}
 
 	initFeedbacks() {
