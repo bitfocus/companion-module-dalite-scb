@@ -340,7 +340,7 @@ class instance extends require('../../instance_skel') {
 				return;
 		}
 		return out;
-	};
+	}
 
 	refreshData() {
 		const data = this.COMMANDS.filter(this.ACCESS.READONLY, this.ACCESS.READWRITE)
@@ -357,21 +357,21 @@ class instance extends require('../../instance_skel') {
 
 	isConnected() {
 		return this.socket !== undefined && this.socket.connected;
-	};
+	}
 
 	get(command) {
 		command = this.COMMANDS.find(command);
 		if ([this.ACCESS.READONLY, this.ACCESS.READWRITE].indexOf(command.access) !== -1) {
 			this.socket.send(`$ 0 GE ${command.value}\r`);
 		}
-	};
+	}
 
 	set(command, value) {
 		command = this.COMMANDS.find(command);
 		if ([this.ACCESS.WRITEONLY, this.ACCESS.READWRITE].indexOf(command.access) !== -1) {
 			this.socket.send(`# 0 SE ${command.value} ${value}\r`);
 		}
-	};
+	}
 
 	constants() {
 		this.POSITION_UNITS = {
