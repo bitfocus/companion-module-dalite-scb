@@ -73,7 +73,7 @@ class instance extends require('../../instance_skel') {
 				debug(`No options found for ${key}`);
 			}
 		}
-		this.system.emit('instance_actions', this.id, actions);
+		this.setActions(actions)
 	}
 
 	action(object) {
