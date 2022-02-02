@@ -18,5 +18,9 @@
 		"type": "git",
 		"url": "git+https://github.com/bitfocus/companion-module-dalite-scb.git"
 	},
-	"license": "MIT"
+	"license": "MIT",
+	"homepage": "https://github.com/bitfocus/companion-module-dalite-scb#readme",
+	"bugs": {
+		"url": "https://github.com/bitfocus/companion-module-dalite-scb/issues"
+	}
 }
